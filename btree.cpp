@@ -1,5 +1,5 @@
 // 12161104 박범근 데이터베이스 b+tree 구현 과제
-#define _CRT_SECURE_NO_WARNINGS
+
 #include <iostream>
 #include <fstream>
 #include <stdio.h>
@@ -47,6 +47,7 @@ vector<int> fileOpen(string filename, string mode) {
 	{
 		while (!readFile.eof())    //파일 끝까지 읽었는지 확인
 		{
+			char* context = NULL;
 			string tempLine ="";
 			getline(readFile, tempLine);    //한줄씩 읽어오기
 			if (tempLine == "")
@@ -56,10 +57,10 @@ vector<int> fileOpen(string filename, string mode) {
 			}
 			else {
 				auto c_string = tempLine.c_str();
-				char* ptr = strtok((char*)c_string, ", ");
+				char* ptr = strtok_s((char*)c_string, ", ", &context );
 				while (ptr != NULL) {
 					fileData.push_back(stoi((string)ptr));
-					ptr = strtok(NULL, ", ");
+					ptr = strtok_s(NULL, ", ", &context);
 				}
 			}
 		}
