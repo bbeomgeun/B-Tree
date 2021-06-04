@@ -1,7 +1,7 @@
 // 12161104 박범근 데이터베이스 b+tree 구현 과제
+#define _CRT_SECURE_NO_WARNINGS
 
 #include <iostream>
-#include <fstream>
 #include <stdio.h>
 #include <vector>
 #include <string>
@@ -9,77 +9,94 @@
 
 using namespace std;
 
+class Node {
+public:
+	int key;
+	int value;
+};
+
 class BTree {
 public:
-	BTree() {
-		//const char *fileName, int blockSize
-	}
+	const char * btreeFile;
+	int blockSize;
+	FILE* pFile;
+	
+	BTree(const char* binaryFile) {
+		this->btreeFile = binaryFile;
+		blockSize = 0;
+		char block[10];
+		pFile = fopen(this->btreeFile, "rb");
+		if (pFile != NULL) {
+			fgets(block, 4, pFile);
+			blockSize = atoi(block); // ascii
+			fclose(pFile);
+		}
+	} // 파일이름을 초기화하고, 블럭사이즈를 항상 읽어온다.
 
-	void creation(string fileName, int blockSize) {
-		ofstream binaryFile(fileName, ios::out | ios::binary);
-		//헤더 write (blockSize, rootBID = 1, Depth = 0)
-		int rootBID = 1;
-		int rootDepth = 0;
-		binaryFile.write(reinterpret_cast<char*>(&blockSize), sizeof(int));
-		binaryFile.write(reinterpret_cast<char*>(&rootBID), sizeof(int));
-		binaryFile.write(reinterpret_cast<char*>(&rootDepth), sizeof(int));
+	void creation(string fileName, int blockSize) { // 헤더 write (blockSize, rootBID = 1, Depth = 0)
+		pFile = fopen(this->btreeFile, "wb");
+		int rootBID = 0; // 초기 root null
+		int rootDepth = 0; // depth 0
+		fwrite(reinterpret_cast<char*>(&blockSize), sizeof(int),1, pFile);
+		fwrite(reinterpret_cast<char*>(&rootBID), sizeof(int),1, pFile);
+		fwrite(reinterpret_cast<char*>(&rootDepth), sizeof(int), 1, pFile);
+		fclose(pFile);
 	}
 
 	bool insert(int key, int rid) {
+		
 
 	}
 	int* pointSearch(int key) {
 
+
 	}
 	int* rangeSearch(int startRange, int endRange) {
 
+
 	}
 	void print() {
-
+	
 	}
 };
 
-vector<int> fileOpen(string filename, string mode) {
+vector<int> fileOpen(const char * filename, string mode) {
 	vector<int> fileData;
-	fstream readFile;             //읽을 목적의 파일 선언
-	readFile.open(filename);    //파일 열기
-	if (readFile.is_open())    //파일이 열렸는지 확인
+	FILE* readFile = fopen(filename, "r");           //읽을 목적의 파일 선언
+	if (readFile != NULL)    //파일이 열렸는지 확인
 	{
-		while (!readFile.eof())    //파일 끝까지 읽었는지 확인
-		{
+		char line[255];
+		while (fgets(line, sizeof(line), readFile) != NULL) {
+			line[strlen(line) - 1] = '\0';
 			char* context = NULL;
-			string tempLine ="";
-			getline(readFile, tempLine);    //한줄씩 읽어오기
-			if (tempLine == "")
+			if (line[0] == '\0')
 				break;
 			if (mode == "s") {
-				fileData.push_back(stoi(tempLine));
+				fileData.push_back(stoi(line));
 			}
 			else {
-				auto c_string = tempLine.c_str();
-				char* ptr = strtok_s((char*)c_string, ", ", &context );
+				char* ptr = strtok_s(line, ", ", &context);
 				while (ptr != NULL) {
 					fileData.push_back(stoi((string)ptr));
 					ptr = strtok_s(NULL, ", ", &context);
 				}
 			}
 		}
+		fclose(readFile);    //파일 닫기
 	}
-	readFile.close();    //파일 닫기
 	return fileData;
 }
 // Test
 int main(int argc, char* argv[]){
 
 	char command = argv[1][0];
-	string binaryFileName = argv[2];
+	const char* binaryFileName = argv[2];
 	int blockSize = 0;
-	string insertFileName = "";
-	string searchFileName = "";
-	string resultFileName = "";
-	BTree* myBtree = new BTree();
+	const char * insertFileName = "";
+	const char* searchFileName = "";
+	const char* resultFileName = "";
+	BTree* myBtree = new BTree(binaryFileName);
 	vector<int> inputData;
-	// insert 시 헤더에서 blockSize와 루트 읽어오고 
 
 	switch (command)
 	{
@@ -91,34 +108,28 @@ int main(int argc, char* argv[]){
 	case 'i':
 		// insert records from [records data file], ex) records.txt
 		insertFileName = argv[3];
-		// 파일 이름을 통해 파일의 key, id 읽어서 insert 실행
 		inputData = fileOpen(insertFileName, "i");
 		for (int i = 0; i < inputData.size(); i+=2) {
-			cout << inputData[i] << " " << inputData[i + 1] << "\n";
+			//myBtree->insert(inputData[i],inputData[i + 1]);
 		}
-		//myBtree->insert();
 		break;
 	case 's':
 		// search keys in [input file] and print results to [output file]
 		searchFileName = argv[3];
 		resultFileName = argv[4];
-		// 파일 이름을 통해 파일의 key로 search, 결과 result에 입력
 		inputData = fileOpen(searchFileName, "s");
 		for (int i = 0; i < inputData.size(); i ++) {
-			cout << inputData[i] << "\n";
+			//myBtree->pointSearch(inputData[i]);
 		}
-		//myBtree->pointSearch();
 		break;
 	case 'r':
 		// search keys in [input file] and print results to [output file]
 		searchFileName = argv[3];
 		resultFileName = argv[4];
-		// 파일 이름을 통해 파일의 key로 search, 결과 result에 입력
 		inputData = fileOpen(searchFileName, "r");
 		for (int i = 0; i < inputData.size(); i += 2) {
-			cout << inputData[i] << " " << inputData[i + 1] << "\n";
+			//myBtree->rangeSearch(inputData[i], inputData[i + 1]);
 		}
-		//myBtree->rangeSearch();
 		break;
 	case 'p':
 		// print B+-Tree structure to [output file]
