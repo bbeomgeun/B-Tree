@@ -7,6 +7,7 @@
 #include <string>
 #include <cstring>
 #include <queue>
+#include <cmath>
 
 using namespace std;
 
@@ -15,6 +16,26 @@ enum class Header { // 헤더 변수를 위한 enum class(mode용)
 	rootBID,
 	depth
 };
+
+class leafNode { // 리프노드는 dataEntry와 nextBID로 구성
+public:
+	priority_queue<pair<int, int>, vector<pair<int, int>>, greater<pair<int, int>>> dataEntry;
+	// key, value - 인덱스 key값과 실제 data를 가리키는 int * value, key순서대로 자동정렬(우선순위큐)
+	leafNode* nextBID;
+
+	leafNode(int key, int value) { // 리프노드 만들면서 key value 넣기?
+		nextBID = NULL;
+		dataEntry.push(make_pair(key, value));
+	}
+};
+
+class nonLeafNode { // non리프노드는 pointer와 key로 구성, key n개, 포인터 n+1개
+public:
+	int pointer; // 하위 blockID를 가리키는 pointer int변수
+	int key; // 기준 key 값
+	vector<nonLeafNode> nonLeafNodeList;
+	vector<leafNode> leafNodeList;
+}; // 총 8byte
 
 class BTree {
 public:
@@ -25,9 +46,6 @@ public:
 	BTree(const char* binaryFile) { 
 		this->btreeFileName = binaryFile;
 		blockSize = getHeader(this->btreeFileName, Header::blockSize);
-		cout << blockSize;
-		cout << getHeader(this->btreeFileName, Header::rootBID);
-		cout << getHeader(this->btreeFileName, Header::depth);
 	} // 파일이름을 초기화하고, blockSize를 항상 읽어온다.
 	 // 파일이 없다면 getHeader는 -1리턴
 
@@ -47,6 +65,22 @@ public:
 			}
 			fclose(tempFile);
 		}
+	}
+
+	void setHeader(int rootBID, int depth) { // blockSize는 안바뀜, 헤더의 rootBID와 depth 변경 
+		pFile = fopen(this->btreeFileName, "rw"); // write binary
+		fseek(pFile, 4, SEEK_SET);
+		fwrite(&rootBID, sizeof(int), 1, pFile);
+		fwrite(&depth, sizeof(int), 1, pFile);
+		fclose(pFile);
+	}
+
+	int getNumberPerNode() {
+		return floor((this->blockSize - 4) / 8);
+	}
+
+	int getBlockLocation() {
+		return 12 + (this->blockSize - 1) * 8; // 헤더 12byte + 한 블럭당 8byte ex) 1번블럭은 12byte부터 시작
 	}
 
 	void creation(string fileName, int blockSize) { // 헤더 write (blockSize, rootBID = 1, Depth = 0)
@@ -84,9 +118,9 @@ public:
 
 	//Node* getNode(int blockID) { // block 전체를 긁어오는 작업
 	//	FILE* tempFile = fopen(this->btreeFileName, "rb");
-	//	int blockLocation = 12 + (blockID - 1) * 8; // 헤더 12byte + 한 블럭당 8byte ex) 1번블럭은 12byte부터 시작
+	// int blockLocation = getBlockLocation();
 	//	fseek(tempFile, blockLocation, SEEK_SET); // 파일 처음부터 blockLocation 만큼 가서 찾기
-	// fread( int형 버퍼, sizeof(int), 갯수, 파일포인터)
+	// fread( int형 버퍼, sizeof(), getNumberPerNode(), 파일포인터) // 버퍼에 최대 갯수만큼 가져오기
 	// cout<<ftell(tempFile) // 현재 커서의 위치를 문서의 맨 처음기준으로 말해준다.
 	// fseek(tempFile, 4, 0); // 처음 위치부터 4byte 이후 위치로 이동
 	// fgets(block, 4, tempFile); // 4~8byte rootBID
