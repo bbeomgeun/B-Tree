@@ -9,6 +9,7 @@
 #include <stack>
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 
 using namespace std;
 
@@ -66,31 +67,33 @@ public:
 
 class BTree {
 public:
+	FILE* pFile;
 	const char* btreeFileName;
 	int blockSize;
-	FILE* pFile;
+	int blockCount;
 
 	BTree(const char* binaryFile) {
 		this->btreeFileName = binaryFile;
 		this->blockSize = getHeader(Header::blockSize);
+		this->blockCount = getBlockCount();
 	} // 파일이름을 초기화하고, blockSize를 항상 읽어온다.
 		// 파일이 없다면 getHeader는 -1리턴
+
+	int getBlockCount() {
+		pFile = fopen(this->btreeFileName, "rb");
+		fseek(pFile, 0, SEEK_END);
+		int fileSize = ftell(pFile);
+		fclose(pFile);
+		return (fileSize - 12) / this->blockSize; // 헤더사이즈빼고 블럭사이즈로 나누면 블럭 갯수가 나온다.
+	}
 
 	int getHeader(Header mode) { // 헤더 읽어오는 함수 + 모드와 함께
 		FILE* tempFile = fopen(this->btreeFileName, "rb"); // read binary
 		int block[3]; // buffer
 		fread(block, sizeof(int), 3, tempFile); // block buffer에 int 사이즈로 3개 데이터 읽어오기
 		if (tempFile != NULL) {
-			if (mode == Header::blockSize) {
-				return block[0];
-			}
-			else if (mode == Header::rootBID) {
-				return block[1];
-			}
-			else if (mode == Header::depth) {
-				return block[2];
-			}
 			fclose(tempFile);
+			return block[static_cast<int>(mode)]; // blockSize = 0, rootBID = 1, depth = 2
 		}
 	}
 
@@ -99,14 +102,6 @@ public:
 		fseek(pFile, 4, SEEK_SET);
 		fwrite(&rootBID, sizeof(int), 1, pFile);
 		fwrite(&depth, sizeof(int), 1, pFile);
-		fclose(pFile);
-	}
-
-	void insertData(int blockID, int location, int key, int value) { // writeFile -> key와 value만 받으면 해당 block에 입력해주는 함수
-		pFile = fopen(this->btreeFileName, "rw"); // write binary
-		fseek(pFile, getBlockOffset(blockID) + location, SEEK_SET); // + 블럭시작부터가 아니라 데이터가 없는 곳부터 넣어야할듯.
-		fwrite(&key, sizeof(int), 1, pFile);
-		fwrite(&value, sizeof(int), 1, pFile);
 		fclose(pFile);
 	}
 
@@ -157,6 +152,7 @@ public:
 		pFile = fopen(this->btreeFileName, "ab"); // append binary (파일 끝에서)
 		int param = 0;
 		fwrite(&param, sizeof(int), getNumberPerNode(), pFile); // blockSize(byte)만큼 0으로 채운다
+		blockCount++;
 		fclose(pFile);
 	}
 
@@ -179,6 +175,14 @@ public:
 	void nonLeafSplit() {
 	}
 
+	void insertData(int blockID, int location, int key, int value) { // writeFile -> key와 value만 받으면 해당 block에 입력해주는 함수
+		pFile = fopen(this->btreeFileName, "rw"); // write binary
+		fseek(pFile, getBlockOffset(blockID) + location, SEEK_SET); // + 블럭시작부터가 아니라 데이터가 없는 곳부터 넣어야할듯.
+		fwrite(&key, sizeof(int), 1, pFile);
+		fwrite(&value, sizeof(int), 1, pFile);
+		fclose(pFile);
+	}
+
 	void creation(string fileName, int blockSize) { // 헤더 write (blockSize, rootBID = 1, Depth = 0)
 		pFile = fopen(this->btreeFileName, "wb");
 		int rootBID = 0; // 초기 root null
@@ -192,6 +196,10 @@ public:
 	}
 
 	void insert(int key, int value) {
+		stack<int> trackID;
+		trackID = searchBlock(key);
+		int insertLocation = trackID.top();
+		trackID.pop();
 		if (getHeader(Header::rootBID) == 0) { // 빈 Tree면 root와 루트블럭 초기화
 			setHeader(1, 0);
 			makeNewNode();
@@ -211,10 +219,13 @@ public:
 	// 1 3 5 7이고 searchKey가 4라면 5에서 멈추고 5의 pointer(3 <= x < 5)를 통해 내려감
 	// 리프까지 가고 리프노드에서도 역시 sequential하게 찾는다.
 
-	int searchBlock(int searchKey) { // 트리를 타고 내려가면서 데이터가 있는 리프노드까지 타고 간다. 루트가 리프라면 루트ID 리턴
+	stack<int> searchBlock(int searchKey) { // 트리를 타고 내려가면서 데이터가 있는 리프노드까지 타고 간다. 루트가 리프라면 루트ID 리턴
 		int curNodeID = getHeader(Header::rootBID);
 		int treeDepth = getHeader(Header::depth);
 		int tempDepth = 0;
+		// 내려가는 blockID들 벡터나 스택에 저장해서 리턴하기, 
+		stack<int> trackID;
+		trackID.push(curNodeID);
 		while (treeDepth != treeDepth) { // depth가 같을때까지
 			NonLeafNode* tempNonLeaf = getNonLeafNode(curNodeID); // 루트부터 읽으면서 내려온다.
 			for (int i = 1; i < tempNonLeaf->indexEntries.size(); i++) { // 블럭의 entry를 sequential scan하면서
@@ -222,16 +233,19 @@ public:
 				int tempKey = tempNonLeaf->indexEntries[i]->key; // 현재 key값보다 searchKey가 더 크면 다음key본다
 				if (searchKey < tempKey) { // key가 현재 key보다 작으면 왼쪽 포인터로 내려간다.
 					curNodeID = tempBID;
+					trackID.push(curNodeID);
 					tempDepth++;
 				}
 			}
 		}
-		return curNodeID;
+		return trackID;
 	}
 
 	pair<int, int> pointSearch(int searchKey) {
 		// 단일 블럭 search 후 pointSearch
-		int curNodeID = searchBlock(searchKey);
+		stack<int> trackID;
+		trackID = searchBlock(searchKey);
+		int curNodeID = trackID.top();
 		LeafNode* tempLeaf = getLeafNode(curNodeID); // depth끝 == 리프노드
 		for (int i = 0; i < tempLeaf->dataEntries.size(); i++) {
 			int tempLeafKey = tempLeaf->dataEntries[i]->key;
@@ -245,7 +259,9 @@ public:
 
 	vector<pair<int, int>> rangeSearch(int startRange, int endRange) { // 1 3 5 7 9에서 5~8 -> 5 7
 		// 다음 블럭까지 가는 경우를 생각
-		int curNodeID = searchBlock(startRange);
+		stack<int> trackID;
+		trackID = searchBlock(startRange);
+		int curNodeID = trackID.top();
 		vector<pair<int, int>> rangeResult;
 		LeafNode* tempLeaf = getLeafNode(curNodeID); 
 		while (1) { // 다음 블럭을 가기 위해 반복문
