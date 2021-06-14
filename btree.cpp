@@ -9,7 +9,6 @@
 #include <stack>
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 
 using namespace std;
 
@@ -81,24 +80,28 @@ public:
 
 	int getBlockCount() {
 		pFile = fopen(this->btreeFileName, "rb");
-		fseek(pFile, 0, SEEK_END);
-		int fileSize = ftell(pFile);
-		fclose(pFile);
-		return (fileSize - 12) / this->blockSize; // 헤더사이즈빼고 블럭사이즈로 나누면 블럭 갯수가 나온다.
+		if (pFile != NULL) {
+			fseek(pFile, 0, SEEK_END);
+			int fileSize = ftell(pFile);
+			fclose(pFile);
+			return (fileSize - 12) / this->blockSize; // 헤더사이즈빼고 블럭사이즈로 나누면 블럭 갯수가 나온다.
+		}
+		return -1;
 	}
 
 	int getHeader(Header mode) { // 헤더 읽어오는 함수 + 모드와 함께
 		FILE* tempFile = fopen(this->btreeFileName, "rb"); // read binary
 		int block[3]; // buffer
-		fread(block, sizeof(int), 3, tempFile); // block buffer에 int 사이즈로 3개 데이터 읽어오기
 		if (tempFile != NULL) {
+			fread(block, sizeof(int), 3, tempFile); // block buffer에 int 사이즈로 3개 데이터 읽어오기
 			fclose(tempFile);
 			return block[static_cast<int>(mode)]; // blockSize = 0, rootBID = 1, depth = 2
 		}
+		return -1;
 	}
 
 	void setHeader(int rootBID, int depth) { // blockSize는 안바뀜, 헤더의 rootBID와 depth 변경 
-		pFile = fopen(this->btreeFileName, "rw"); // write binary
+		pFile = fopen(this->btreeFileName, "r+b"); // write binary
 		fseek(pFile, 4, SEEK_SET);
 		fwrite(&rootBID, sizeof(int), 1, pFile);
 		fwrite(&depth, sizeof(int), 1, pFile);
@@ -107,57 +110,70 @@ public:
 
 	LeafNode*  getLeafNode(int blockID) { // leaf block 전체를 긁어오는 작업
 		FILE* tempFile = fopen(this->btreeFileName, "rb");
-		vector<int> buffer;
+		int bufferSize = getNumberPerNode();
+		int* bufferArray = new int[bufferSize] {}; // 동적할당 및 0으로 초기화
 		int blockLocation = getBlockOffset(blockID);
 		fseek(tempFile, blockLocation, SEEK_SET); // 파일 처음부터 blockLocation 만큼 가서 찾기
-		fread(&buffer, sizeof(int), getNumberPerNode(), tempFile); // 버퍼에 최대 갯수만큼 가져오기
+		fread(&bufferArray, sizeof(int), bufferSize, tempFile); // 버퍼에 최대 갯수만큼 가져오기
+		bufferSize = getNumberPerNode(); // read를 하면서 bufferSize가 가져온 데이터 개수만큼 줄어들어서 다시 초기화
 		LeafNode* leafNode = new LeafNode(); // 리프노드 담을 메모리
-		for (int i = 0; i < buffer.size(); i += 2) {  // 0이 아닌 데이터만 insert한다.
-			if (buffer[i] == 0) {
+		for (int i = 0; i < bufferSize; i += 2) {  // 0이 아닌 데이터만 insert한다.
+			if (bufferArray[i] == 0) {
 				leafNode->location = i*4; // i * 2 / 8, 0번이면 처음부터, 1번이면 +8byte (i는 2씩 올라간다)
 				break;
 			}
 			else{
-				DataEntry* dataEntry = new DataEntry(buffer[i], buffer[i + 1]);
+				DataEntry* dataEntry = new DataEntry(bufferArray[i], bufferArray[i + 1]);
 				leafNode->dataEntries.push_back(dataEntry);
 			}
 		}
-		leafNode->nextLeafNode = buffer.back();
-
+		leafNode->nextLeafNode = bufferArray[bufferSize-1]; // 제일 끝
+		delete[] bufferArray;
 		return leafNode;
 	}
 
 	NonLeafNode*  getNonLeafNode(int blockID) { // non leaf block 전체를 긁어오는 작업
 		FILE* tempFile = fopen(this->btreeFileName, "rb");
-		vector<int> buffer;
+		int bufferSize = getNumberPerNode();
+		int* bufferArray = new int[bufferSize] {}; // 동적할당 및 0으로 초기화
 		int blockLocation = getBlockOffset(blockID);
 		fseek(tempFile, blockLocation, SEEK_SET); // 파일 처음부터 blockLocation 만큼 가서 찾기
-		fread(&buffer, sizeof(int), getNumberPerNode(), tempFile); // 버퍼에 최대 갯수만큼 가져오기
+		fread(&bufferArray, sizeof(int), bufferSize, tempFile); // 버퍼에 최대 갯수만큼 가져오기
+		bufferSize = getNumberPerNode(); // read를 하면서 bufferSize가 가져온 데이터 개수만큼 줄어들어서 다시 초기화
 		NonLeafNode* nonLeafNode = new NonLeafNode(); // 리프노드 담을 메모리
-		nonLeafNode->BIDpointer = buffer.front();
-		for (int i = 1; i < buffer.size(); i += 2) { // 0이 아닌 데이터만 insert한다.
-			if (buffer[i] == 0) {
+		nonLeafNode->BIDpointer = bufferArray[0]; // 제일 먼저
+		for (int i = 1; i < bufferSize; i += 2) { // 0이 아닌 데이터만 insert한다.
+			if (bufferArray[i] == 0) {
 				nonLeafNode->location = i*4; // 4+(i - 1) / 2 * 8, 1부터 버퍼시작이라 1 빼고(4 +) 한쌍을 위해 2로 나누고 8바이트
 				break;
 			}
 			else {
-				IndexEntry* indexEntry = new IndexEntry(buffer[i], buffer[i + 1]);
+				IndexEntry* indexEntry = new IndexEntry(bufferArray[i], bufferArray[i + 1]);
 				nonLeafNode->indexEntries.push_back(indexEntry);
 			}
 		}
+		delete[] bufferArray;
 		return nonLeafNode;
 	}
 
-	void makeNewNode() { // 파일 끝에 블럭사이즈만큼 0으로 추가한다
-		pFile = fopen(this->btreeFileName, "ab"); // append binary (파일 끝에서)
-		int param = 0;
-		fwrite(&param, sizeof(int), getNumberPerNode(), pFile); // blockSize(byte)만큼 0으로 채운다
+	void makeNewBlock(int blockID) { // 파일 끝에 블럭사이즈만큼 0으로 추가한다
+		pFile = fopen(this->btreeFileName, "r+b"); // writeBinary
+		int blockLocation = getBlockOffset(blockID);
+		fseek(pFile, blockLocation, SEEK_SET); // 파일 처음부터 blockLocation 만큼 가서 찾기
+		int bufferSize = getNumberPerNode();
+		int* bufferArray = new int[bufferSize] {}; // 동적할당 및 0으로 초기화
+		fwrite(&bufferArray, sizeof(int), bufferSize, pFile); // blockSize(byte)만큼 0으로 채운다
 		blockCount++;
+		delete[] bufferArray;
 		fclose(pFile);
 	}
 
-	int getNumberPerNode() {
-		return floor((this->blockSize-4)/8); // 8byte로 갯수 세기
+	int getNumberPerNode() { // getNode에서 fread시 sizeof(int)로 긁어올때 사용하는 갯수 -> 4byte로 계산해야한다.
+		return floor((this->blockSize)/4); // 4byte로 갯수 세기 - 단순 blockSize를 int 갯수로 나눈 것
+	}
+	
+	int getEntryPerNode() { // split여부 시 사용, Entry Size로 생각(8byte 단위로 insert해야하므로)
+		return floor((this->blockSize - 4) / 8); // 8byte entry단위, leaf는 nextBID, nonLeaf는 nextLevelBID 4byte 제외
 	}
 
 	int getBlockOffset(int blockID) { // 해당 blockID를 통해 entry위치로
@@ -165,22 +181,31 @@ public:
 	}
 
 	bool isLeafSplit(LeafNode * temp) {
-		return temp->dataEntries.size() > getNumberPerNode();
+		return temp->dataEntries.size()+1 > getEntryPerNode(); // 1개 entry 삽입되면 split이 일어나는지 체크
 	}
 	bool isNonLeafSplit(NonLeafNode * temp) {
-		return temp->indexEntries.size() > getNumberPerNode();
+		return temp->indexEntries.size()+1 > getEntryPerNode(); // 1개 entry 삽입되면 split이 일어나는지 체크
 	}
 	void leafSplit() {
 	}
 	void nonLeafSplit() {
 	}
 
-	void insertData(int blockID, int location, int key, int value) { // writeFile -> key와 value만 받으면 해당 block에 입력해주는 함수
+	void updateLeafData(int blockID, LeafNode* _leafNode) { // writeFile -> key와 value만 받으면 해당 block에 입력해주는 함수
 		pFile = fopen(this->btreeFileName, "rw"); // write binary
-		fseek(pFile, getBlockOffset(blockID) + location, SEEK_SET); // + 블럭시작부터가 아니라 데이터가 없는 곳부터 넣어야할듯.
-		fwrite(&key, sizeof(int), 1, pFile);
-		fwrite(&value, sizeof(int), 1, pFile);
+		//fseek(pFile, getBlockOffset(blockID) + _leafNode->location, SEEK_SET); // + 블럭시작부터가 아니라 데이터가 없는 곳부터 넣어야할듯.
+		fseek(pFile, getBlockOffset(blockID), SEEK_SET); // 정렬된 순서를 write해야하므로 매번 block처음부터 wirte해주자.
+		for (int i = 0; i < _leafNode->dataEntries.size(); i++) { // 새로운 entry가 추가 +정렬되어 있는 상황. 파일 업데이트
+			int key = _leafNode->dataEntries[i]->key;
+			int value = _leafNode->dataEntries[i]->value;
+			fwrite(&key, sizeof(int), 1, pFile);
+			fwrite(&value, sizeof(int), 1, pFile);
+		}
 		fclose(pFile);
+	}
+
+	void updateNonLeafData(int blockID, NonLeafNode * _nonLeafNode) { // split시 이용
+
 	}
 
 	void creation(string fileName, int blockSize) { // 헤더 write (blockSize, rootBID = 1, Depth = 0)
@@ -197,20 +222,25 @@ public:
 
 	void insert(int key, int value) {
 		stack<int> trackID;
-		trackID = searchBlock(key);
+		trackID = searchBlock(key); // 삽입해야할 block 찾기 및 찾아온 경로
 		int insertLocation = trackID.top();
 		trackID.pop();
-		if (getHeader(Header::rootBID) == 0) { // 빈 Tree면 root와 루트블럭 초기화
-			setHeader(1, 0);
-			makeNewNode();
-		}
+		if (getHeader(Header::rootBID) == 0) { // 루트가 없는 경우는 루트1 + block1생성
+			int newRoot = 1;
+			setHeader(newRoot, 0); // 루트 blockID 1로 update
+			makeNewBlock(newRoot); // block #1 생성
+		} // 여기까지 트리 첫 초기화 과정(아무 블럭도 없을 경우)
+		 // 초기화해주고나서 삽입과정 시작
 		int tempRootBID = getHeader(Header::rootBID);
 		LeafNode* tempLeafNode = getLeafNode(tempRootBID); // 해당 노드를 찾아서 LeafNode에 저장(dataEntry + nextBID)
-		if (isLeafSplit(tempLeafNode)) {
+		if (isLeafSplit(tempLeafNode)) { // 1개 추가하면 blockSize를 넘는 경우
 
 		}
-		else {
-			insertData(tempRootBID, tempLeafNode->location, key, value);
+		else { // entry 1개 추가해도 split 발생하지 않는 경우
+			DataEntry *newDataEntry = new DataEntry(key, value);
+			tempLeafNode->dataEntries.push_back(newDataEntry);
+			sort(tempLeafNode->dataEntries.begin(), tempLeafNode->dataEntries.end());
+			updateLeafData(tempRootBID, tempLeafNode);
 		}
 	}
 	// search는 헤더에서 루트bid 가져와서 루트부터 내려가자
@@ -390,7 +420,7 @@ public:
 			insertFileName = argv[3];
 			inputData = fileOpen(insertFileName, "i");
 			for (int i = 0; i < inputData.size(); i += 2) {
-				//myBtree->insert(inputData[i],inputData[i + 1]);
+				myBtree->insert(inputData[i],inputData[i + 1]);
 			}
 			break;
 		case 's':
