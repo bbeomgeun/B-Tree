@@ -64,6 +64,10 @@ public:
 	}
 };
 
+bool compare(DataEntry* a, DataEntry* b) {
+	return a->key < b->key;
+}
+
 class BTree {
 public:
 	FILE* pFile;
@@ -111,10 +115,10 @@ public:
 	LeafNode*  getLeafNode(int blockID) { // leaf block 전체를 긁어오는 작업
 		FILE* tempFile = fopen(this->btreeFileName, "rb");
 		int bufferSize = getNumberPerNode();
-		int* bufferArray = new int[bufferSize] {}; // 동적할당 및 0으로 초기화
+		int* bufferArray = new int[bufferSize](); // 동적할당 및 0으로 초기화
 		int blockLocation = getBlockOffset(blockID);
 		fseek(tempFile, blockLocation, SEEK_SET); // 파일 처음부터 blockLocation 만큼 가서 찾기
-		fread(&bufferArray, sizeof(int), bufferSize, tempFile); // 버퍼에 최대 갯수만큼 가져오기
+		fread(bufferArray, sizeof(int), bufferSize, tempFile); // 버퍼에 최대 갯수만큼 가져오기
 		bufferSize = getNumberPerNode(); // read를 하면서 bufferSize가 가져온 데이터 개수만큼 줄어들어서 다시 초기화
 		LeafNode* leafNode = new LeafNode(); // 리프노드 담을 메모리
 		for (int i = 0; i < bufferSize; i += 2) {  // 0이 아닌 데이터만 insert한다.
@@ -135,10 +139,10 @@ public:
 	NonLeafNode*  getNonLeafNode(int blockID) { // non leaf block 전체를 긁어오는 작업
 		FILE* tempFile = fopen(this->btreeFileName, "rb");
 		int bufferSize = getNumberPerNode();
-		int* bufferArray = new int[bufferSize] {}; // 동적할당 및 0으로 초기화
+		int* bufferArray = new int[bufferSize](); // 동적할당 및 0으로 초기화
 		int blockLocation = getBlockOffset(blockID);
 		fseek(tempFile, blockLocation, SEEK_SET); // 파일 처음부터 blockLocation 만큼 가서 찾기
-		fread(&bufferArray, sizeof(int), bufferSize, tempFile); // 버퍼에 최대 갯수만큼 가져오기
+		fread(bufferArray, sizeof(int), bufferSize, tempFile); // 버퍼에 최대 갯수만큼 가져오기
 		bufferSize = getNumberPerNode(); // read를 하면서 bufferSize가 가져온 데이터 개수만큼 줄어들어서 다시 초기화
 		NonLeafNode* nonLeafNode = new NonLeafNode(); // 리프노드 담을 메모리
 		nonLeafNode->BIDpointer = bufferArray[0]; // 제일 먼저
@@ -161,7 +165,7 @@ public:
 		int blockLocation = getBlockOffset(blockID);
 		fseek(pFile, blockLocation, SEEK_SET); // 파일 처음부터 blockLocation 만큼 가서 찾기
 		int bufferSize = getNumberPerNode();
-		int* bufferArray = new int[bufferSize] {}; // 동적할당 및 0으로 초기화
+		int* bufferArray = new int[bufferSize](); // 동적할당 및 0으로 초기화
 		fwrite(&bufferArray, sizeof(int), bufferSize, pFile); // blockSize(byte)만큼 0으로 채운다
 		blockCount++;
 		delete[] bufferArray;
@@ -192,7 +196,7 @@ public:
 	}
 
 	void updateLeafData(int blockID, LeafNode* _leafNode) { // writeFile -> key와 value만 받으면 해당 block에 입력해주는 함수
-		pFile = fopen(this->btreeFileName, "rw"); // write binary
+		pFile = fopen(this->btreeFileName, "r+b"); // write binary
 		//fseek(pFile, getBlockOffset(blockID) + _leafNode->location, SEEK_SET); // + 블럭시작부터가 아니라 데이터가 없는 곳부터 넣어야할듯.
 		fseek(pFile, getBlockOffset(blockID), SEEK_SET); // 정렬된 순서를 write해야하므로 매번 block처음부터 wirte해주자.
 		for (int i = 0; i < _leafNode->dataEntries.size(); i++) { // 새로운 entry가 추가 +정렬되어 있는 상황. 파일 업데이트
@@ -239,7 +243,7 @@ public:
 		else { // entry 1개 추가해도 split 발생하지 않는 경우
 			DataEntry *newDataEntry = new DataEntry(key, value);
 			tempLeafNode->dataEntries.push_back(newDataEntry);
-			sort(tempLeafNode->dataEntries.begin(), tempLeafNode->dataEntries.end());
+			sort(tempLeafNode->dataEntries.begin(), tempLeafNode->dataEntries.end(), compare);
 			updateLeafData(tempRootBID, tempLeafNode);
 		}
 	}
@@ -363,88 +367,88 @@ public:
 	}
 };
 
-	vector<int> fileOpen(const char* filename, string mode) {
-		// mode에 따라서 fileOpen, insert/range search는 key value / key key고, point search는 key 하나
-		vector<int> fileData;
-		FILE* readFile = fopen(filename, "r");           //읽을 목적의 파일 선언
-		if (readFile != NULL)    //파일이 열렸는지 확인
-		{
-			char line[255]; // 임시 buffer 역할
-			while (fgets(line, sizeof(line), readFile) != NULL) { // 한 줄씩 버퍼에 읽어온다
-				line[strlen(line) - 1] = '\0'; // 개행 문자 제거
-				char* context = NULL; // 토큰용 버퍼
-				if (line[0] == '\0') // 읽어온게 없다면 종료
-					break;
-				if (mode == "s") { // point search는 토큰화 필요없다
-					fileData.push_back(stoi(line));
+vector<int> fileOpen(const char* filename, string mode) {
+	// mode에 따라서 fileOpen, insert/range search는 key value / key key고, point search는 key 하나
+	vector<int> fileData;
+	FILE* readFile = fopen(filename, "r");           //읽을 목적의 파일 선언
+	if (readFile != NULL)    //파일이 열렸는지 확인
+	{
+		char line[255]; // 임시 buffer 역할
+		while (fgets(line, sizeof(line), readFile) != NULL) { // 한 줄씩 버퍼에 읽어온다
+			line[strlen(line) - 1] = '\0'; // 개행 문자 제거
+			char* context = NULL; // 토큰용 버퍼
+			if (line[0] == '\0') // 읽어온게 없다면 종료
+				break;
+			if (mode == "s") { // point search는 토큰화 필요없다
+				fileData.push_back(stoi(line));
+			}
+			else { // 나머지는 값이 두개이므로 나눠주기
+				char* ptr = strtok_s(line, ", ", &context); // [, ]를 기준으로 나눠주기
+				while (ptr != NULL) {
+					fileData.push_back(stoi((string)ptr));
+					ptr = strtok_s(NULL, ", ", &context);
 				}
-				else { // 나머지는 값이 두개이므로 나눠주기
-					char* ptr = strtok_s(line, ", ", &context); // [, ]를 기준으로 나눠주기
-					while (ptr != NULL) {
-						fileData.push_back(stoi((string)ptr));
-						ptr = strtok_s(NULL, ", ", &context);
-					}
-				}
-			} // 최종적으로 1차원 벡터에 저장됨
-			fclose(readFile);    //파일 닫기
-		}
-		return fileData; // 벡터 리턴
+			}
+		} // 최종적으로 1차원 벡터에 저장됨
+		fclose(readFile);    //파일 닫기
 	}
+	return fileData; // 벡터 리턴
+}
 
-	// test
-	// creation : c Btree.bin 36
-	// inseart : i Btree.bin sample_insertion_input.txt
-	// point search : s Btree.bin sample_search_input.txt result.txt
-	// range search : r Btree.bin sample_range_search.txt result.txt
-	// print : p Btree.bin result.txt
-	int main(int argc, char* argv[]) {
+// test
+// creation : c Btree.bin 36
+// inseart : i Btree.bin sample_insertion_input.txt
+// point search : s Btree.bin sample_search_input.txt result.txt
+// range search : r Btree.bin sample_range_search.txt result.txt
+// print : p Btree.bin result.txt
+int main(int argc, char* argv[]) {
 
-		char command = argv[1][0];
-		const char* binaryFileName = argv[2];
-		int blockSize = 0;
-		const char* insertFileName = "";
-		const char* searchFileName = "";
-		const char* resultFileName = "";
-		BTree* myBtree = new BTree(binaryFileName); //argument를 통해 index btree파일로 btree 생성
-		vector<int> inputData;
+	char command = argv[1][0];
+	const char* binaryFileName = argv[2];
+	int blockSize = 0;
+	const char* insertFileName = "";
+	const char* searchFileName = "";
+	const char* resultFileName = "";
+	BTree* myBtree = new BTree(binaryFileName); //argument를 통해 index btree파일로 btree 생성
+	vector<int> inputData;
 
-		switch (command)
-		{
-		case 'c':
-			// create index file
-			blockSize = atoi(argv[3]);
-			myBtree->creation(binaryFileName, blockSize); // creation은 creation을 통해 헤더 초기화
-			break;
-		case 'i':
-			// insert records from [records data file], ex) records.txt
-			insertFileName = argv[3];
-			inputData = fileOpen(insertFileName, "i");
-			for (int i = 0; i < inputData.size(); i += 2) {
-				myBtree->insert(inputData[i],inputData[i + 1]);
-			}
-			break;
-		case 's':
-			// search keys in [input file] and print results to [output file]
-			searchFileName = argv[3];
-			resultFileName = argv[4];
-			inputData = fileOpen(searchFileName, "s");
-			for (int i = 0; i < inputData.size(); i++) {
-				//myBtree->pointSearch(inputData[i]);
-			}
-			break;
-		case 'r':
-			// search keys in [input file] and print results to [output file]
-			searchFileName = argv[3];
-			resultFileName = argv[4];
-			inputData = fileOpen(searchFileName, "r");
-			for (int i = 0; i < inputData.size(); i += 2) {
-				//myBtree->rangeSearch(inputData[i], inputData[i + 1]);
-			}
-			break;
-		case 'p':
-			// print B+-Tree structure to [output file]
-			resultFileName = argv[3];
-			//myBtree->print();
-			break;
+	switch (command)
+	{
+	case 'c':
+		// create index file
+		blockSize = atoi(argv[3]);
+		myBtree->creation(binaryFileName, blockSize); // creation은 creation을 통해 헤더 초기화
+		break;
+	case 'i':
+		// insert records from [records data file], ex) records.txt
+		insertFileName = argv[3];
+		inputData = fileOpen(insertFileName, "i");
+		for (int i = 0; i < inputData.size(); i += 2) {
+			myBtree->insert(inputData[i],inputData[i + 1]);
 		}
+		break;
+	case 's':
+		// search keys in [input file] and print results to [output file]
+		searchFileName = argv[3];
+		resultFileName = argv[4];
+		inputData = fileOpen(searchFileName, "s");
+		for (int i = 0; i < inputData.size(); i++) {
+			//myBtree->pointSearch(inputData[i]);
+		}
+		break;
+	case 'r':
+		// search keys in [input file] and print results to [output file]
+		searchFileName = argv[3];
+		resultFileName = argv[4];
+		inputData = fileOpen(searchFileName, "r");
+		for (int i = 0; i < inputData.size(); i += 2) {
+			//myBtree->rangeSearch(inputData[i], inputData[i + 1]);
+		}
+		break;
+	case 'p':
+		// print B+-Tree structure to [output file]
+		resultFileName = argv[3];
+		//myBtree->print();
+		break;
 	}
+}
