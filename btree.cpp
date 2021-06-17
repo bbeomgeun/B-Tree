@@ -116,13 +116,6 @@ public:
 		fclose(pFile);
 	}
 
-	void setLeafNextBID(int rootBID, int nextBID) {
-		pFile = fopen(this->btreeFileName, "r+b");
-		fseek(pFile, getBlockOffset(rootBID+1)-4, SEEK_SET);
-		fwrite(&nextBID, sizeof(int), 1, pFile);
-		fclose(pFile);
-	}
-
 	LeafNode*  getLeafNode(int blockID) { // leaf block 전체를 긁어오는 작업
 		FILE* tempFile = fopen(this->btreeFileName, "rb");
 		int bufferSize = getNumberPerNode();
@@ -132,7 +125,7 @@ public:
 		fread(bufferArray, sizeof(int), bufferSize, tempFile); // 버퍼에 최대 갯수만큼 가져오기
 		bufferSize = getNumberPerNode(); // read를 하면서 bufferSize가 가져온 데이터 개수만큼 줄어들어서 다시 초기화
 		LeafNode* leafNode = new LeafNode(); // 리프노드 담을 메모리
-		for (int i = 0; i < bufferSize; i += 2) {  // 0이 아닌 데이터만 insert한다.
+		for (int i = 0; i < bufferSize-1; i += 2) {  // 0이 아닌 데이터만 insert한다. 마지막 nextBID 제외하기 위해 size-1
 			if (bufferArray[i] == 0) {
 				leafNode->location = i*4; // i * 2 / 8, 0번이면 처음부터, 1번이면 +8byte (i는 2씩 올라간다)
 				break;
@@ -177,7 +170,7 @@ public:
 		fseek(pFile, blockLocation, SEEK_SET); // 파일 처음부터 blockLocation 만큼 가서 찾기
 		int bufferSize = getNumberPerNode();
 		int* bufferArray = new int[bufferSize](); // 동적할당 및 0으로 초기화
-		fwrite(&bufferArray, sizeof(int), bufferSize, pFile); // blockSize(byte)만큼 0으로 채운다
+		fwrite(bufferArray, sizeof(int), bufferSize, pFile); // blockSize(byte)만큼 0으로 채운다
 		blockCount++;
 		delete[] bufferArray;
 		fclose(pFile);
@@ -203,11 +196,11 @@ public:
 	}
 	IndexEntry*  leafSplit(int insertLocation, LeafNode * tempLeafNode) {
 		int splitBlockID = this->blockCount + 1;
+		LeafNode* splitLeafNode = new LeafNode(); // 새 splitNode
+		splitLeafNode->nextLeafNode = tempLeafNode->nextLeafNode; // 기존 block이 가리키던 ID를 새 block에게
 		makeNewBlock(splitBlockID); // 새 splitNode 생성
 		tempLeafNode->nextLeafNode = splitBlockID; // 기존 노드에 nextLeaf 연결
-		setLeafNextBID(insertLocation, splitBlockID);  // 기존 노드 파일에 nextLeaf 파일 write
 		// nextBID 지정, splitNode에 반절 data 옮기기, 상위 노드에 pointer 추가하기
-		LeafNode* splitLeafNode = new LeafNode(); // 새 splitNode
 		int leftSize = tempLeafNode->dataEntries.size(); // 기존 노드 사이즈, 이미 추가된 상태라 (제한 + 1개 추가 entry)
 		// 데이터 옮기는 과정
 		for (int i = leftSize / 2; i < leftSize; i++) {
@@ -249,7 +242,7 @@ public:
 		fseek(pFile, getBlockOffset(blockID), SEEK_SET); // 정렬된 순서를 write해야하므로 매번 block처음부터 wirte해주자.
 		int bufferSize = getNumberPerNode();
 		int* bufferArray = new int[bufferSize](); // 동적할당 및 0으로 초기화
-		fwrite(&bufferArray, sizeof(int), bufferSize, pFile); // blockSize(byte)만큼 0으로 초기화
+		fwrite(bufferArray, sizeof(int), bufferSize, pFile); // blockSize(byte)만큼 0으로 초기화
 		delete[] bufferArray;
 		fseek(pFile, getBlockOffset(blockID), SEEK_SET); // 다시 offset으로 가서 새로운 entry 추가 (현재 0으로 초기화)
 		for (int i = 0; i < _leafNode->dataEntries.size(); i++) { // 새로운 entry가 추가 +정렬되어 있는 상황. 파일 업데이트
@@ -258,6 +251,8 @@ public:
 			fwrite(&key, sizeof(int), 1, pFile);
 			fwrite(&value, sizeof(int), 1, pFile);
 		}
+		fseek(pFile, getBlockOffset(blockID + 1) - 4, SEEK_SET);
+		fwrite(&_leafNode->nextLeafNode, sizeof(int), 1, pFile);
 		fclose(pFile);
 	}
 
@@ -266,7 +261,7 @@ public:
 		fseek(pFile, getBlockOffset(blockID), SEEK_SET); // 정렬된 순서를 write해야하므로 매번 block처음부터 wirte해주자.
 		int bufferSize = getNumberPerNode();
 		int* bufferArray = new int[bufferSize](); // 동적할당 및 0으로 초기화
-		fwrite(&bufferArray, sizeof(int), bufferSize, pFile); // blockSize(byte)만큼 0으로 초기화
+		fwrite(bufferArray, sizeof(int), bufferSize, pFile); // blockSize(byte)만큼 0으로 초기화
 		delete[] bufferArray;
 		fseek(pFile, getBlockOffset(blockID), SEEK_SET); // 다시 offset으로 가서 다시 작성
 		fwrite(&_nonLeafNode->BIDpointer, sizeof(int), 1, pFile); // nonLeafNode는 BIDPointer부터
@@ -367,11 +362,19 @@ public:
 		// 내려가는 blockID들 벡터나 스택에 저장해서 리턴하기, 
 		stack<int> trackID;
 		trackID.push(curNodeID);
-		while (treeDepth != treeDepth) { // depth가 같을때까지
+		while (treeDepth != tempDepth) { // depth가 같을때까지
 			NonLeafNode* tempNonLeaf = getNonLeafNode(curNodeID); // 루트부터 읽으면서 내려온다.
-			for (int i = 1; i < tempNonLeaf->indexEntries.size(); i++) { // 블럭의 entry를 sequential scan하면서
-				int tempBID = tempNonLeaf->indexEntries[i - 1]->BIDpointer; // 왼쪽 포인터 저장
-				int tempKey = tempNonLeaf->indexEntries[i]->key; // 현재 key값보다 searchKey가 더 크면 다음key본다
+			for (int i = 0; i < tempNonLeaf->indexEntries.size(); i++) { // 블럭의 entry를 sequential scan하면서
+				int tempBID = 0;
+				int tempKey = 0;
+				if (i == 0) {
+					tempBID = tempNonLeaf->BIDpointer;
+					tempKey = tempNonLeaf->indexEntries.front()->key;
+				}
+				else {
+					tempBID = tempNonLeaf->indexEntries[i - 1]->BIDpointer; // 왼쪽 포인터 저장
+					tempKey = tempNonLeaf->indexEntries[i]->key; // 현재 key값보다 searchKey가 더 크면 다음key본다
+				}
 				if (searchKey < tempKey) { // key가 현재 key보다 작으면 왼쪽 포인터로 내려간다.
 					curNodeID = tempBID;
 					trackID.push(curNodeID);
