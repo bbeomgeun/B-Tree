@@ -210,7 +210,7 @@ public:
 		tempLeafNode->dataEntries.erase(tempLeafNode->dataEntries.begin() + leftSize / 2, tempLeafNode->dataEntries.end());
 		updateLeafData(insertLocation, tempLeafNode); // 파일에 변경된 기존 노드 작성(내부에서 0으로 초기화되고 write)
 		updateLeafData(splitBlockID, splitLeafNode); // 파일에 splitNode 작성(내부에서 0으로 초기화되고 write)
-		//---------------------여기까지 리프노드 split -> blockCount만 늘어나고 root나 depth는 관련 X
+		// 리프노드 split 완료
 		int newIndexKey = splitLeafNode->dataEntries.front()->key; // 포인터용 key + blockID는 splitBlockID 사용
 		IndexEntry * newIndexEntry = new IndexEntry(newIndexKey, splitBlockID);
 
@@ -322,13 +322,7 @@ public:
 				else { // stack에 내 상위 레벨 노드 BID가 있는 경우 거기에 삽입을 진행한다. 계속 타고 올라가면서 split 발생 시 계속 반복
 					int tempUpBlockID = trackID.top();
 					trackID.pop();
-									//int tempUpUpBlockID = 0;
-									//if (!trackID.empty()) { // 두 레벨 위 노드의 존재 여부 확인용(있으면 split시 그곳에 insert, 없으면 new block)
-									//	tempUpUpBlockID = trackID.top();
-									//}
 					NonLeafNode* tempNonLeafNode = getNonLeafNode(tempUpBlockID); // 상위노드 가져오기
-					//IndexEntry* newIndexEntry = new IndexEntry(); // 새로 생긴 block의 첫 key 값과 blockID;
-					// 일단 위에서 만든거 사용
 					tempNonLeafNode->indexEntries.push_back(newIndexEntry); // 상위 노드에 index 추가
 					sort(tempNonLeafNode->indexEntries.begin(), tempNonLeafNode->indexEntries.end(), compareNonLeaf);
 					// split 진행하면서 안의 내용들만 바뀔뿐 -> 따라서 index를 key값에 맞춰서만 넣어주고 pointer는 자기가 가리키던거 계속
@@ -351,11 +345,6 @@ public:
 			return;
 		}
 	}
-	// search는 헤더에서 루트bid 가져와서 루트부터 내려가자
-	// Node * nowNode = getNode(rootBID);
-	// nowNode의 pointer들 key들을 받아서 searchKey보다 큰 key를 만나면 해당 pointer타고 내려간다
-	// 1 3 5 7이고 searchKey가 4라면 5에서 멈추고 5의 pointer(3 <= x < 5)를 통해 내려감
-	// 리프까지 가고 리프노드에서도 역시 sequential하게 찾는다.
 
 	stack<int> searchBlock(int searchKey) { // 트리를 타고 내려가면서 데이터가 있는 리프노드까지 타고 간다. 루트가 리프라면 루트ID 리턴
 		int curNodeID = getHeader(Header::rootBID);
@@ -411,8 +400,7 @@ public:
 		return make_pair(-1, -1);
 	}
 
-	vector<pair<int, int>> rangeSearch(int startRange, int endRange) { // 1 3 5 7 9에서 5~8 -> 5 7
-		// 다음 블럭까지 가는 경우를 생각
+	vector<pair<int, int>> rangeSearch(int startRange, int endRange) { 
 		stack<int> trackID;
 		trackID = searchBlock(startRange);
 		int curNodeID = trackID.top();
@@ -437,10 +425,10 @@ public:
 		}
 	}
 
-	void print() { // Level 0(루트)와 level 1을 출력, depth 비교해가면서 leaf인지 nonleaf인지
+	void print(string fileName) { // Level 0(루트)와 level 1을 출력, depth 비교해가면서 leaf인지 nonleaf인지
 		// 레벨1이 Leaf노드면 그냥 nextBID 타고 쭉 출력하면 되는데 nonLeaf면 루트 노드의 nextLevelBID 타고 재귀적으로 수행
 		ofstream fcout;
-		fcout.open("print.txt");
+		fcout.open(fileName);
 		int tempRoot = getHeader(Header::rootBID);
 		int treeDepth = getHeader(Header::depth);
 		if (treeDepth == 0) {
@@ -543,11 +531,11 @@ vector<int> fileOpen(const char* filename, string mode) {
 }
 
 // test
-// creation : c Btree.bin 36
-// inseart : i Btree.bin sample_insertion_input.txt
-// point search : s Btree.bin sample_search_input.txt result.txt
-// range search : r Btree.bin sample_range_search.txt result.txt
-// print : p Btree.bin result.txt
+// creation : c btree.bin 36
+// inseart : i btree.bin sample_insertion_input.txt
+// point search : s btree.bin sample_search_input.txt result.txt
+// range search : r btree.bin sample_range_search.txt result.txt
+// print : p btree.bin print.txt
 int main(int argc, char* argv[]) {
 
 	char command = argv[1][0];
@@ -585,7 +573,7 @@ int main(int argc, char* argv[]) {
 		for (int i = 0; i < inputData.size(); i++) {
 			pointSearchResult.push_back(myBtree->pointSearch(inputData[i]));
 		}
-		fcout.open("result.txt");
+		fcout.open(resultFileName);
 		for (int i = 0; i < pointSearchResult.size(); i++) {
 			fcout << pointSearchResult[i].first << "," << pointSearchResult[i].second << "\n";
 		}
@@ -596,7 +584,7 @@ int main(int argc, char* argv[]) {
 		searchFileName = argv[3];
 		resultFileName = argv[4];
 		inputData = fileOpen(searchFileName, "r");
-		fcout.open("range_result.txt");
+		fcout.open(resultFileName);
 		for (int i = 0; i < inputData.size(); i += 2) {
 			rangeSearchResult = myBtree->rangeSearch(inputData[i], inputData[i + 1]);
 			for (int j = 0; j < rangeSearchResult.size(); j++) {
@@ -609,7 +597,7 @@ int main(int argc, char* argv[]) {
 	case 'p':
 		// print B+-Tree structure to [output file]
 		resultFileName = argv[3];
-		myBtree->print();
+		myBtree->print(resultFileName);
 		break;
 	}
 }
