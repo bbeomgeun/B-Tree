@@ -221,10 +221,10 @@ public:
 		makeNewBlock(splitBlockID);
 		NonLeafNode* splitNonLeafNode = new NonLeafNode();
 		int leftSize = tempNonLeafNode->indexEntries.size();
-		IndexEntry* newIndexEntry = new IndexEntry(tempNonLeafNode->indexEntries[leftSize]->key, splitBlockID);
-		//위로 올라갈 nonLeafEntry(오른쪽 첫번째 key값, 오른쪽 new blockID)
+		IndexEntry* newIndexEntry = new IndexEntry(tempNonLeafNode->indexEntries[leftSize/2]->key, splitBlockID);
+		//위로 올라갈 nonLeafEntry(오른쪽 첫번째 key값, 오른쪽 new blockID)를 먼저 빼준다 (오른쪽 노드에 들어가진 않으므로)
 		// 추가로 오른쪽 새로 생긴 블럭의 blockID를 지정해줘야한다.
-		splitNonLeafNode->BIDpointer = tempNonLeafNode->indexEntries[leftSize]->BIDpointer;
+		splitNonLeafNode->BIDpointer = tempNonLeafNode->indexEntries[leftSize/2]->BIDpointer;
 		//올라가는 entry가 가리키고 있던 하위레벨 blockID를 splitNode가 가리키고 올라가는 entry는 이 block을 가리킴
 		for (int i = leftSize / 2+1; i < leftSize; i++) { // 올라가는 entry 제외하고 옮겨준다.
 			splitNonLeafNode->indexEntries.push_back(tempNonLeafNode->indexEntries[i]);
@@ -335,6 +335,7 @@ public:
 						//split 발생 시 leaf처럼 똑같이 1/2 해주고 오른쪽 노드의 첫 번째 index entry를 위로 올려준다
 						//nonLeaf만의 과정 진행 + 또 위에다가 insert하되 없으면 newBlock 만들기, 
 						newIndexEntry = nonLeafSplit(tempUpBlockID, tempNonLeafNode); // 새로 올라가야하는 entry에 저장, write
+						insertLocation = tempUpBlockID; // 바꿔줘야 상위 root 생성하고 root의 왼쪽 블럭이 올바르게 저장됨(split 되기 전 blockID)
 						// while문 돌면서 비어있다면 case1 이후 종료, 아니라면 case2로 와서 상위 노드에 삽입, 계속 진행
 					}
 					else {// 아니면 삽입된 상위노드 write해주기
@@ -364,6 +365,7 @@ public:
 		trackID.push(curNodeID);
 		while (treeDepth != tempDepth) { // depth가 같을때까지
 			NonLeafNode* tempNonLeaf = getNonLeafNode(curNodeID); // 루트부터 읽으면서 내려온다.
+			int searchFlag = false;
 			for (int i = 0; i < tempNonLeaf->indexEntries.size(); i++) { // 블럭의 entry를 sequential scan하면서
 				int tempBID = 0;
 				int tempKey = 0;
@@ -379,8 +381,15 @@ public:
 					curNodeID = tempBID;
 					trackID.push(curNodeID);
 					tempDepth++;
+					searchFlag = true;
+					break; // for문 종료하고 다음 노드로 넘어가자
 				}
 			}
+			if (!searchFlag) {// 끝까지 못 찾은 경우 제일 마지막 blockID 넣어주자
+				curNodeID = tempNonLeaf->indexEntries.back()->BIDpointer;
+				trackID.push(curNodeID);
+				tempDepth++;
+			} // 다음 depth로 넘어가기
 		}
 		return trackID;
 	}
