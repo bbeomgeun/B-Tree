@@ -9,6 +9,7 @@
 #include <stack>
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 
 using namespace std;
 
@@ -428,58 +429,83 @@ public:
 					return rangeResult;
 				}
 			}
-			tempLeaf = getLeafNode(tempLeaf->nextLeafNode); // 연결된 오른쪽 리프 노드로 이동
+			if (tempLeaf->nextLeafNode != 0) { // 더 이상 nextLeaf가 없을때까지
+				tempLeaf = getLeafNode(tempLeaf->nextLeafNode); // 연결된 오른쪽 리프 노드로 이동
+			}
+			else
+				return rangeResult;
 		}
-		return rangeResult;
 	}
 
 	void print() { // Level 0(루트)와 level 1을 출력, depth 비교해가면서 leaf인지 nonleaf인지
 		// 레벨1이 Leaf노드면 그냥 nextBID 타고 쭉 출력하면 되는데 nonLeaf면 루트 노드의 nextLevelBID 타고 재귀적으로 수행
+		ofstream fcout;
+		fcout.open("print.txt");
 		int tempRoot = getHeader(Header::rootBID);
 		int treeDepth = getHeader(Header::depth);
 		if (treeDepth == 0) {
 			LeafNode* leafNode = getLeafNode(tempRoot);
-			cout << "<0>" << "\n";
+			fcout << "<0>" << "\n";
 			for (int i = 0; i < leafNode->dataEntries.size(); i++) {
 				int tempKey = leafNode->dataEntries[i]->key;
-				cout<< tempKey << " ";
-			}// 레벨 0 leaf key 파일 출력 & 레벨1은 존재하지 않음
-		}
+				if (i != leafNode->dataEntries.size() - 1)
+					fcout << tempKey << ",";
+				else
+					fcout << tempKey;
+			}
+			fcout << "\n";
+			fcout << "<1>" << "\n";
+			fcout.close();
+			return;
+		}// 레벨 0 leaf key 파일 출력 & 레벨1은 존재하지 않음
 
 		else { // depth가 0이 아닌 경우
 			NonLeafNode* rootNode = getNonLeafNode(tempRoot); // 루트는 nonLeaf
-			cout << "<0>" << "\n";
+			fcout << "<0>" << "\n";
 			for (int i = 0; i < rootNode->indexEntries.size(); i++) {
 				int tempKey = rootNode->indexEntries[i]->key;
-				cout << tempKey << " ";
+				if (i != rootNode->indexEntries.size() - 1)
+					fcout << tempKey << ",";
+				else
+					fcout << tempKey;
 			} // 레벨 0 non leaf key 파일 출력
-			cout << "\n";
-
+			fcout << "\n";
+			fcout << "<1>" << "\n";
 			if (treeDepth > 1) { // 레벨 1도 nonLeaf이다. -> 이 경우 루트노드에서 BID 보면서 출력해야한다.
 				NonLeafNode* firstNonLeaf = getNonLeafNode(rootNode->BIDpointer);
 				for (int i = 0; i < firstNonLeaf->indexEntries.size(); i++) {
 					int tempKey = firstNonLeaf->indexEntries[i]->key;
-					cout << tempKey << " ";
-				} // 제일 첫번째 레벨 1
+					fcout << tempKey << ",";
+				} // 레벨1 제일 첫번째
 				for (int i = 0; i < rootNode->indexEntries.size(); i++) { // 루트에서 타고 들어가기
 					int nextLevelBID = rootNode->indexEntries[i]->BIDpointer;
-					NonLeafNode* tempNonLeaf = getNonLeafNode(nextLevelBID);
+					NonLeafNode* tempNonLeaf = getNonLeafNode(nextLevelBID); // 각 블럭id를 통해 접근
 
-					for (int i = 0; i < tempNonLeaf->indexEntries.size(); i++) {
-						int tempKey = tempNonLeaf->indexEntries[i]->key;
-						cout << tempKey << " ";
+					for (int j = 0; j < tempNonLeaf->indexEntries.size(); j++) {
+						int tempKey = tempNonLeaf->indexEntries[j]->key;
+						if (j == tempNonLeaf->indexEntries.size() - 1 && i == rootNode->indexEntries.size() - 1)
+							fcout << tempKey;
+						else
+							fcout << tempKey << ",";
 					}
 				}
+				fcout.close();
+				return;
 			}
 			else if (treeDepth == 1) { // 레벨1은 leafNode
 				LeafNode* leafNode = getLeafNode(rootNode->BIDpointer); // 제일 왼쪽 리프 노드부터
-				cout << "<1>" << "\n";
-				while (leafNode->nextLeafNode != 0) { // 다음 리프노드가 없을 때까지
+				while (1) { // 다음 리프노드가 없을 때까지
 					for (int i = 0; i < leafNode->dataEntries.size(); i++) {
 						int tempKey = leafNode->dataEntries[i]->key;
-						cout<< tempKey<<" ";
+						fcout << tempKey << ",";
 					}
-					leafNode = getLeafNode(leafNode->nextLeafNode);
+					if (leafNode->nextLeafNode != 0) {
+						leafNode = getLeafNode(leafNode->nextLeafNode);
+					}
+					else {
+						fcout.close();
+						return;
+					}
 				}// 레벨 1 leaf key 파일 출력
 			}
 		}
@@ -494,7 +520,9 @@ vector<int> fileOpen(const char* filename, string mode) {
 	{
 		char line[255]; // 임시 buffer 역할
 		while (fgets(line, sizeof(line), readFile) != NULL) { // 한 줄씩 버퍼에 읽어온다
-			line[strlen(line) - 1] = '\0'; // 개행 문자 제거
+			if(line[strlen(line)-1] == '\n'){ // 제일 마지막 데이터가 잘리는 현상 방지
+				line[strlen(line) - 1] = '\0'; // 개행 문자 제거
+			}
 			char* context = NULL; // 토큰용 버퍼
 			if (line[0] == '\0') // 읽어온게 없다면 종료
 				break;
@@ -530,6 +558,9 @@ int main(int argc, char* argv[]) {
 	const char* resultFileName = "";
 	BTree* myBtree = new BTree(binaryFileName); //argument를 통해 index btree파일로 btree 생성
 	vector<int> inputData;
+	vector<pair<int, int>> pointSearchResult;
+	vector<pair<int, int>> rangeSearchResult;
+	ofstream fcout;
 
 	switch (command)
 	{
@@ -552,22 +583,33 @@ int main(int argc, char* argv[]) {
 		resultFileName = argv[4];
 		inputData = fileOpen(searchFileName, "s");
 		for (int i = 0; i < inputData.size(); i++) {
-			//myBtree->pointSearch(inputData[i]);
+			pointSearchResult.push_back(myBtree->pointSearch(inputData[i]));
 		}
+		fcout.open("result.txt");
+		for (int i = 0; i < pointSearchResult.size(); i++) {
+			fcout << pointSearchResult[i].first << "," << pointSearchResult[i].second << "\n";
+		}
+		fcout.close();
 		break;
 	case 'r':
 		// search keys in [input file] and print results to [output file]
 		searchFileName = argv[3];
 		resultFileName = argv[4];
 		inputData = fileOpen(searchFileName, "r");
+		fcout.open("range_result.txt");
 		for (int i = 0; i < inputData.size(); i += 2) {
-			//myBtree->rangeSearch(inputData[i], inputData[i + 1]);
+			rangeSearchResult = myBtree->rangeSearch(inputData[i], inputData[i + 1]);
+			for (int j = 0; j < rangeSearchResult.size(); j++) {
+				fcout << rangeSearchResult[j].first << "," << rangeSearchResult[j].second << "\t";
+			}
+			fcout << "\n";
 		}
+		fcout.close();
 		break;
 	case 'p':
 		// print B+-Tree structure to [output file]
 		resultFileName = argv[3];
-		//myBtree->print();
+		myBtree->print();
 		break;
 	}
 }
